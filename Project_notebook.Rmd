@@ -1,0 +1,276 @@
+---
+title: "Data Science and Business Intel Project"
+Subtitle: 'Churn Prediction: Telcom Customer Churn'
+documentclass: article
+output:
+  html_document: default
+  pdf_document: default
+fontsize: 11pt
+Author: Lok Tin Kevin Chan
+---
+```{r library, warning = FALSE, message= FALSE}
+library(tidyverse)
+library(ggplot2)
+library(cowplot)
+library(reshape2)
+library(car)
+library(leaps)
+library(bestglm)
+library(plotly)
+library(DataExplorer)
+library(purrr)
+library(rpart)
+library(rpart.plot)
+library(mlr)
+library(kernlab)
+library(e1071)
+source("./[5]Script/Confusion_matrix.R")
+```
+
+```{r data, warning=FALSE, message=FALSE}
+# Read in raw data
+ds <- (read.csv("./[4]source/WA_Fn-UseC_-Telco-Customer-Churn.csv"))
+ds$SeniorCitizen <- as.factor(ds$SeniorCitizen)
+#####################################################################################
+# Metadata
+#####################################################################################
+# copy & Paste from datasource when free lol
+#
+#
+#####################################################################################
+# Data Type:
+#####################################################################################
+# 16 Categorical Variables:
+# - 6 Binary Variables (Gender, Senior Citizen, Partner, Dependents, Phone Service, Paperless Billing)
+# - 9 3-Factor level Variable (Multiple Lines, Internet Service, Online Security, Online Backup, Device Protection, Tech Support, Streaming TV, Streaming Movies, Contract)
+# - 1 4-Factor level Variable (Payment Method)
+#####################################################################################
+# 3 Continious Variables:
+# - Tenure, Monthly Charge, Total Charge
+#####################################################################################
+# 1 Target Variables:
+# - Churn
+#####################################################################################
+```
+## Data Cleaning
+```{r}
+# missing data analysis
+# 1) We first check if missing exist within our dataset
+print(paste0("The dataset contains missing data: ", any(is.na(ds))))
+if (any(is.na(ds)) == "TRUE"){
+      print(paste0("The total number of missing data(s) are: ", sum(is.na(ds))))
+      print(paste0("The variable(s) with missing data(s) are: ", colnames(ds)[colSums(is.na(ds))>0]))
+}
+plot_missing(ds)
+
+# 2) Filter the missing data into a its own dataset for further analysis
+df_na <- ds[rowSums(is.na(ds))>0,]
+df_na
+```
+From the above missing data analysis, we are able to see out of the 7043 observation of 21 variables there are only 11 missing values and they are belong to the TOTAL CHARGES column(.16%), hence we are working with a pretty clean dataset. 
+
+An possible explaination for this mssing values is:
+(1) These customer never paid anything to the company
+(2) Tenure for all these customer are 0, thus meaning that this may be their first month with the company and thus the company hasn't charged them.
+
+For these 11 missing data, we can either:
+(1) Impute the total charge value
+(2) Set total charge value to be zero
+(3) Remove them from the data set
+
+Since we have a relatively large dataset, and that none of the customer with missing value have churn, thus for convience of the analysis, we will drop the 11 observation with missing TOTAL CHARGE. 
+## Data Exploration
+```{r}
+df_clean <- ds %>% 
+            na.omit() %>% 
+            select(-1)
+
+
+# Binary variable distribution in Customer attribution
+ggplot(data = df_clean, aes(x = Churn, y = (..count..)/sum(..count..), fill = Churn))+
+      geom_bar()+
+      ggtitle("Customer Attribution")+
+      ylab("Percentage")
+
+```
+
+```{r}
+# Categorical Variable Analysis
+# Binary binary variables Analysis
+options(repr.plot.width = 12, repr.plot.height = 8)
+plot_grid(
+  ggplot(data = df_clean, aes(gender, fill = Churn))+geom_bar(position = "fill"),
+  ggplot(data = df_clean, aes(SeniorCitizen, fill = Churn))+geom_bar(position = "fill"),
+  ggplot(data = df_clean, aes(Partner, fill = Churn))+geom_bar(position = "fill"),
+  ggplot(data = df_clean, aes(Dependents, fill = Churn))+geom_bar(position = "fill"),
+  ggplot(data = df_clean, aes(PhoneService, fill = Churn))+geom_bar(position = "fill"),
+  ggplot(data = df_clean, aes(PaperlessBilling, fill = Churn))+geom_bar(position = "fill")
+)
+
+plot_grid(
+  ggplot(data = df_clean, aes(MultipleLines, fill = Churn))+geom_bar(position = "fill"),
+  ggplot(data = df_clean, aes(InternetService, fill = Churn))+geom_bar(position = "fill"),
+  ggplot(data = df_clean, aes(OnlineBackup, fill = Churn))+geom_bar(position = "fill"),
+   ggplot(data = df_clean, aes(OnlineSecurity, fill = Churn))+geom_bar(position = "fill"),
+  ggplot(data = df_clean, aes(DeviceProtection, fill = Churn))+geom_bar(position = "fill"),
+  ggplot(data = df_clean, aes(TechSupport, fill = Churn))+geom_bar(position = "fill"),
+  ggplot(data = df_clean, aes(StreamingTV, fill = Churn))+geom_bar(position = "fill"),
+  ggplot(data = df_clean, aes(StreamingMovies, fill = Churn))+geom_bar(position = "fill"),
+  ggplot(data = df_clean, aes(Contract, fill = Churn))+geom_bar(position = "fill")
+)
+
+ggplot(data = df_clean, aes(x=PaymentMethod, fill=Churn))+
+  geom_bar(position = "fill")
+
+
+```
+placeholder for the observation for binary variable analysis
+- Senior Citizen
+- Partner
+- Dependent
+- Paperless Billing
+
+```{r}
+# Categorical Analysis # Part 2
+
+
+```
+
+```{r}
+# Continous Variable Analysis
+p <- plot_ly(df_clean,
+             x = ~MonthlyCharges,
+             y = ~TotalCharges,
+             z = ~tenure,
+             color = ~Churn,
+             marker = list(
+               size = 2)) %>% 
+             add_markers() %>% 
+             layout(scene = list(
+               xaxis = list(title = "Monthly Charges"),
+               yaxis = list(title = "Total Charges"),
+               zaxis = list(title = "Tenure")
+             ))
+p
+```
+Placeholder for observation for the continous 
+
+```{r}
+# Data Cleaning and Standardization
+df_clean2 <- df_clean %>% 
+             mutate(MultipleLines=replace(MultipleLines,MultipleLines=="No phone service", "No")) %>%
+             mutate(OnlineSecurity=replace(OnlineSecurity,OnlineSecurity=="No internet service","No")) %>% 
+             mutate(DeviceProtection=replace(DeviceProtection,DeviceProtection=="No internet service","No")) %>% 
+             mutate(TechSupport=replace(TechSupport,TechSupport=="No internet service","No")) %>% 
+             mutate(StreamingTV=replace(StreamingTV,StreamingTV=="No internet service","No")) %>%             
+             mutate(StreamingMovies=replace(StreamingMovies,StreamingMovies=="No internet service","No")) %>%
+             mutate(OnlineBackup=replace(OnlineBackup,OnlineBackup=="No internet service","No")) %>% 
+             mutate(tenure=scale(tenure)) %>% 
+             mutate(MonthlyCharges=scale(MonthlyCharges)) %>% 
+             mutate(TotalCharges=scale(TotalCharges))
+
+```
+
+
+```{r}
+# Feature Importance Analysis
+# generateFilterValuesData(task, "randomForest.importance")
+```
+
+```{r}
+# Split data into training and validation split
+set.seed(1995)
+training <- sample(2,nrow(df_clean2),replace=TRUE,prob=c(.8,.2))
+
+```
+
+
+```{r}
+# GLM Analysis
+# Still need to look at threshold analysis
+# Full GLM
+df_clean.fulllogit <- glm(Churn~., 
+                          family = binomial,
+                          data = df_clean2[training==1,])
+
+getinfo(df_clean.fulllogit,df_clean2)[c("confusion_matrix", "accuracy","sensitivity")]
+
+# Using Forward Approach to search for GLM model with lowest BIC 
+
+# tmp.modelsearch <- bestglm(df_clean2[training==1,],IC = "BIC", family = binomial, method = "forward") # Takes a long while (>= 4 to 6 hours)
+#tmp.modelsearch$BestModels
+#tmp.modelsearch$BestModel
+
+# Best GLM Model
+df_clean.bestlogit <- glm(Churn~ 
+                            SeniorCitizen + 
+                            tenure + 
+                            PhoneService + 
+                            InternetService + 
+                            OnlineSecurity + 
+                            Contract + 
+                            PaperlessBilling + 
+                            PaymentMethod + 
+                            TotalCharges, 
+                          family = binomial,
+                          data = df_clean2[training==1,])
+
+summary(df_clean.bestlogit)
+vif(df_clean.bestlogit)
+getinfo(df_clean.bestlogit,df_clean2)[c("confusion_matrix", "accuracy", "sensitivity")]
+
+# Remove Total Charges due to high VIF value (>2, thus multi-colinearity effect) and also Payment method because of the high P-Value(not signifi cant)
+
+df_clean.bestlogit2 <- glm(Churn~ 
+                            SeniorCitizen + 
+                            tenure + 
+                            PhoneService + 
+                            InternetService + 
+                            OnlineSecurity + 
+                            Contract + 
+                            PaperlessBilling, 
+                          family = binomial,
+                          data = df_clean2[training==1,])
+summary(df_clean.bestlogit2)
+vif(df_clean.bestlogit2)
+getinfo(df_clean.bestlogit2,df_clean2)[c("confusion_matrix", "accuracy", "sensitivity")]
+
+```
+
+```{r}
+# Decision Tree Analysis
+df_clean.tree <- rpart(Churn ~.,  
+                       data = df_clean2[training==1,], method = "class",
+                       control = rpart.control(cp=0.005)) #Going to have to adjust this/hyperparameter tuning
+
+rpart.plot(df_clean.tree)
+getinfo(df_clean.tree,df_clean2)[c("confusion_matrix", "accuracy", "sensitivity")]
+
+
+
+```
+
+```{r}
+# Random Forest Analysis
+task <- makeClassifTask(id = "R.Forest", data = df_clean2[training==1,], target = "Churn")
+learner <- makeLearner("classif.randomForest")
+resample <- makeResampleDesc(method = "CV", stratify = TRUE, iters = 3)
+df_clean.rforest <- train(learner,task)
+df_clean.rforest_pred <- predict(df_clean.rforest, newdata = df_clean2[training==2,])##going to have to adjust factor level in data set 
+# Hyperparameter tuning
+
+```
+
+```{r}
+# SVM Analysis
+task2 <- makeClassifTask(id = "SVM", data = df_clean2[training==1,],target = "Churn")
+learner2 <- makeLearner("classif.svm")
+df_clean.svm <- train(learner2,task2)
+# Hyperparameter tuning
+```
+
+```{r}
+# 
+```
+
+
