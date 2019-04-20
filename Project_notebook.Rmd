@@ -11,6 +11,7 @@ Author: Lok Tin Kevin Chan
 ```{r library, warning = FALSE, message= FALSE}
 library(tidyverse)
 library(ggplot2)
+library(ggROC)
 library(cowplot)
 library(reshape2)
 library(car)
@@ -21,9 +22,9 @@ library(DataExplorer)
 library(purrr)
 library(rpart)
 library(rpart.plot)
-library(mlr)
-library(kernlab)
+library(randomForest)
 library(e1071)
+library(pROC)
 source("./[5]Script/Confusion_matrix.R")
 ```
 
@@ -175,17 +176,20 @@ df_clean2 <- df_clean %>%
 ```{r}
 # Feature Importance Analysis
 # generateFilterValuesData(task, "randomForest.importance")
+df_clean2.feature <- randomForest(Churn~., data = df_clean2, importance = FALSE, ntree = 500, mtry = 2, do.trace=FALSE)
+
+varImpPlot(df_clean2.feature)
 ```
 
-```{r}
+```{r Split_Training}
 # Split data into training and validation split
-set.seed(1995)
+set.seed(1994)
 training <- sample(2,nrow(df_clean2),replace=TRUE,prob=c(.8,.2))
 
 ```
 
 
-```{r}
+```{r LogitRegression}
 # GLM Analysis
 # Still need to look at threshold analysis
 # Full GLM
@@ -198,8 +202,8 @@ getinfo(df_clean.fulllogit,df_clean2)[c("confusion_matrix", "accuracy","sensitiv
 # Using Forward Approach to search for GLM model with lowest BIC 
 
 # tmp.modelsearch <- bestglm(df_clean2[training==1,],IC = "BIC", family = binomial, method = "forward") # Takes a long while (>= 4 to 6 hours)
-#tmp.modelsearch$BestModels
-#tmp.modelsearch$BestModel
+tmp.modelsearch$BestModels
+tmp.modelsearch$BestModel
 
 # Best GLM Model
 df_clean.bestlogit <- glm(Churn~ 
@@ -228,7 +232,8 @@ df_clean.bestlogit2 <- glm(Churn~
                             InternetService + 
                             OnlineSecurity + 
                             Contract + 
-                            PaperlessBilling, 
+                            PaperlessBilling +
+                            PaymentMethod, 
                           family = binomial,
                           data = df_clean2[training==1,])
 summary(df_clean.bestlogit2)
@@ -237,40 +242,106 @@ getinfo(df_clean.bestlogit2,df_clean2)[c("confusion_matrix", "accuracy", "sensit
 
 ```
 
-```{r}
+```{r DecisionTree, warning=FALSE}
 # Decision Tree Analysis
-df_clean.tree <- rpart(Churn ~.,  
+df_clean.fulltree <- rpart(Churn ~.,  
                        data = df_clean2[training==1,], method = "class",
-                       control = rpart.control(cp=0.005)) #Going to have to adjust this/hyperparameter tuning
+                       control = rpart.control(cp=0)) 
 
-rpart.plot(df_clean.tree)
-getinfo(df_clean.tree,df_clean2)[c("confusion_matrix", "accuracy", "sensitivity")]
+getinfo(df_clean.fulltree,df_clean2)[c("confusion_matrix", "accuracy", "sensitivity")]
 
+# Hyperparameter Tuning
 
+# plotcp(df_clean.fulltree)
+printcp(df_clean.fulltree)
+tmp <- df_clean.fulltree$cptable[which.min(df_clean.fulltree$cptable[,"xerror"]),]
+
+# Prune the tree
+df_clean.besttree <- prune(df_clean.fulltree,cp = tmp[1])
+rpart.plot(df_clean.besttree)
+getinfo(df_clean.besttree,df_clean2)[c("confusion_matrix", "accuracy", "sensitivity")]
+```
+
+```{r RandomForest, warning=FALSE}
+# Random Forest
+set.seed(1994)
+df_clean.rforest <- randomForest(Churn~.,
+                                 data = df_clean2[training==1,],
+                                 ntree=500,                     # dataset
+                                 cutoff=c(0.5,0.5), 
+                                 mtry=2,
+                                 importance=TRUE) 
+df_clean.rforest
+
+# Confusion Matrix Test
+getinfo(df_clean.rforest,df_clean2)[c("confusion_matrix", "accuracy", "sensitivity")]
+
+# Hyperparameter Tuning
+set.seed(1994)
+rforest.tune <- tuneRF(x = df_clean2[training==1,]%>%select(-Churn),
+                       y = df_clean2[training==1,]$Churn,mtryStart=2,
+                       ntreeTry = 500)
+
+```
+
+```{r SVM, warning=FALSE}
+# SVM
+df_clean.svm <- svm(Churn~.,
+                    data = df_clean2[training==1,],
+                    kernel = "linear",
+                    cost = 0.01,
+                    proability = TRUE)
+
+getinfo(df_clean.svm,df_clean2)[c("confusion_matrix", "accuracy", "sensitivity")]
+
+# Hyperparameter Tuning
+svm.tune <- tune(svm,
+                 Churn~.,
+                 data = df_clean2[training==1,],
+                 kernel = "linear",
+                 ranges = list(cost = 10^(-5:0)))
+                 
+print(svm.tune)
+svm.tune$best.model
+
+df_clean.bestsvm <- svm(Churn~.,
+                        data = df_clean2[training==1,],
+                        kernel = "linear",
+                        cost = 0.1,
+                        probaility = TRUE)
+
+getinfo(df_clean.bestsvm,df_clean2)[c("confusion_matrix", "accuracy", "sensitivity")]
 
 ```
 
 ```{r}
-# Random Forest Analysis
-task <- makeClassifTask(id = "R.Forest", data = df_clean2[training==1,], target = "Churn")
-learner <- makeLearner("classif.randomForest")
-resample <- makeResampleDesc(method = "CV", stratify = TRUE, iters = 3)
-df_clean.rforest <- train(learner,task)
-df_clean.rforest_pred <- predict(df_clean.rforest, newdata = df_clean2[training==2,])##going to have to adjust factor level in data set 
-# Hyperparameter tuning
+# Performance evaluation - Learning Curves and Fitted Graphs
+# AUC Curve
+# First assemble the probability matrix
+prob_matrix <- data.frame(
+               "logit" = predict(df_clean.bestlogit2,df_clean2[training==2,],type = "response"),
+               "d_tree" = predict(df_clean.besttree, df_clean2[training==2,],type="prob")[,2],
+               "r_forest" = predict(df_clean.rforest, df_clean2[training==2,], type = "prob")[,2],
+               "svm" = as.numeric(attr(predict(df_clean.bestsvm, df_clean2[training==2,], decision.values = TRUE),"decision.values"))
+               )
+# Create the ROC Varible
 
-```
+logit.roc <- roc(df_clean2$Churn[training==2],prob_matrix$logit)
+d_tree.roc <- roc(df_clean2$Churn[training==2],prob_matrix$d_tree)
+r_forest.roc <- roc(df_clean2$Churn[training==2],prob_matrix$r_forest)
+svm.roc <- roc(df_clean2$Churn[training==2],prob_matrix$svm)
 
-```{r}
-# SVM Analysis
-task2 <- makeClassifTask(id = "SVM", data = df_clean2[training==1,],target = "Churn")
-learner2 <- makeLearner("classif.svm")
-df_clean.svm <- train(learner2,task2)
-# Hyperparameter tuning
-```
+plot(logit.roc,legacy.axes = TRUE, print.auc.y = 1.0, print.auc = TRUE)
+plot(d_tree.roc,legacy.axes = TRUE, print.auc.y = 1.0, print.auc = TRUE)
+plot(r_forest.roc,legacy.axes = TRUE, print.auc.y = 1.0, print.auc = TRUE)
+plot(svm.roc,legacy.axes = TRUE, print.auc.y = 1.0, print.auc = TRUE)
 
-```{r}
-# 
+ggroc(list(logit=logit.roc,d_tree=d_tree.roc,r_forest=r_forest.roc,svm=svm.roc),legacy.axes = FALSE)
+
+
+
+
+
 ```
 
 
