@@ -15,6 +15,7 @@ library(ggROC)
 library(cowplot)
 library(reshape2)
 library(car)
+library(caret)
 library(leaps)
 library(bestglm)
 library(plotly)
@@ -26,6 +27,7 @@ library(randomForest)
 library(e1071)
 library(pROC)
 source("./[5]Script/Confusion_matrix.R")
+source("./[5]Script/cutoff.R")
 ```
 
 ```{r data, warning=FALSE, message=FALSE}
@@ -154,7 +156,13 @@ p <- plot_ly(df_clean,
              ))
 p
 ```
+
+```{r}
+# Correlation matrix of continous variable analysis (thank you very much)
+```
+
 Placeholder for observation for the continous 
+
 
 ```{r}
 # Data Cleaning and Standardization
@@ -223,7 +231,7 @@ summary(df_clean.bestlogit)
 vif(df_clean.bestlogit)
 getinfo(df_clean.bestlogit,df_clean2)[c("confusion_matrix", "accuracy", "sensitivity")]
 
-# Remove Total Charges due to high VIF value (>2, thus multi-colinearity effect) and also Payment method because of the high P-Value(not signifi cant)
+# Remove Total Charges due to high VIF value (>2, thus multi-colinearity effect)
 
 df_clean.bestlogit2 <- glm(Churn~ 
                             SeniorCitizen + 
@@ -331,17 +339,40 @@ d_tree.roc <- roc(df_clean2$Churn[training==2],prob_matrix$d_tree)
 r_forest.roc <- roc(df_clean2$Churn[training==2],prob_matrix$r_forest)
 svm.roc <- roc(df_clean2$Churn[training==2],prob_matrix$svm)
 
-plot(logit.roc,legacy.axes = TRUE, print.auc.y = 1.0, print.auc = TRUE)
-plot(d_tree.roc,legacy.axes = TRUE, print.auc.y = 1.0, print.auc = TRUE)
-plot(r_forest.roc,legacy.axes = TRUE, print.auc.y = 1.0, print.auc = TRUE)
-plot(svm.roc,legacy.axes = TRUE, print.auc.y = 1.0, print.auc = TRUE)
+ggroc(list(logit=logit.roc,decision.tree=d_tree.roc,random.forest=r_forest.roc,svm=svm.roc),legacy.axes = FALSE)
 
-ggroc(list(logit=logit.roc,d_tree=d_tree.roc,r_forest=r_forest.roc,svm=svm.roc),legacy.axes = FALSE)
+tmp4 <- c(logit.roc$auc,d_tree.roc$auc,r_forest.roc$auc,svm.roc$auc)
+
+tmp5 <- data.frame(
+  "AUC" = tmp4
+)
+row.names(tmp5)<- c("Logit","Decision Tree", "Random Forest","SVM")
+
+tmp5
+```
+A small discussion about cutoff point:
+
+as we are attempting to identify customer that are going to churn, we thus need to focus on sensitivity metric compared to accuracy. As it is comparitively more expensive to acquire customer than retain customer, thus we are not as concern with false positive, but rather concerned with false negative. We would idealy like a model that is able to successful target all customer that are going to churn, and it should matter less if we have a higher number of false postive to us a telcommunication company. Thus we should have a lower threshold value than 0.5, though the actual value often require domain knowledge which we lack, thus we are going to use a more objective method to set out threshold value. 
+```{r}
+# Lets use logistic regression as it has the largest AUC out of all three method
+
+output <- matrix(0,100,3)
+x_axis <- seq(0.01,0.8,length=100)
+
+for (i in 1:100)
+{
+  output[i,]=threshold(x_axis[i])
+}
+
+plot(x_axis,output[,1], type = "l", col = "darkgreen", xlab = "Threshold Value", ylab = "Values")
+lines(x_axis,output[,2],col = "red")
+lines(x_axis,output[,3], col = "blue")
+legend("bottom",col=c(2,"darkgreen",4,"darkred"),text.font =3,inset = 0.02,
+       box.lty=0,cex = 0.8, 
+       lwd=c(2,2,2,2),c("Specificity","Senitivity","Accuracy"))
 
 
-
-
-
+x_axis[which(abs(output[,1]-output[,2])<0.01)]
 ```
 
 
