@@ -3,8 +3,8 @@ title: "Data Science and Business Intel Project"
 Subtitle: 'Churn Prediction: Telcom Customer Churn'
 documentclass: article
 output:
-  html_document: default
   pdf_document: default
+  html_document: default
 fontsize: 11pt
 Author: Lok Tin Kevin Chan
 ---
@@ -19,6 +19,7 @@ library(caret)
 library(leaps)
 library(bestglm)
 library(plotly)
+library(webshot)
 library(DataExplorer)
 library(purrr)
 library(rpart)
@@ -36,10 +37,10 @@ ds <- (read.csv("./[4]source/WA_Fn-UseC_-Telco-Customer-Churn.csv"))
 ds$SeniorCitizen <- as.factor(ds$SeniorCitizen)
 #####################################################################################
 # Metadata
-#####################################################################################
-# copy & Paste from datasource when free lol
-#
-#
+##################################################################################### Customer Churn: Whether customer has left within the last month 
+# Service that each customer has signed up for
+# Demographic information 
+# Customer Account Information
 #####################################################################################
 # Data Type:
 #####################################################################################
@@ -68,7 +69,7 @@ plot_missing(ds)
 
 # 2) Filter the missing data into a its own dataset for further analysis
 df_na <- ds[rowSums(is.na(ds))>0,]
-df_na
+df_na[c("gender","tenure","PhoneService","InternetService","Contract","MonthlyCharges","TotalCharges","Churn")]
 ```
 From the above missing data analysis, we are able to see out of the 7043 observation of 21 variables there are only 11 missing values and they are belong to the TOTAL CHARGES column(.16%), hence we are working with a pretty clean dataset. 
 
@@ -88,6 +89,7 @@ df_clean <- ds %>%
             na.omit() %>% 
             select(-1)
 
+summary(df_clean)
 
 # Binary variable distribution in Customer attribution
 ggplot(data = df_clean, aes(x = Churn, y = (..count..)/sum(..count..), fill = Churn))+
@@ -96,6 +98,7 @@ ggplot(data = df_clean, aes(x = Churn, y = (..count..)/sum(..count..), fill = Ch
       ylab("Percentage")
 
 ```
+Of our dataset, 26% of the customer has left the platform within the past month
 
 ```{r}
 # Categorical Variable Analysis
@@ -127,17 +130,16 @@ ggplot(data = df_clean, aes(x=PaymentMethod, fill=Churn))+
 
 
 ```
-placeholder for the observation for binary variable analysis
-- Senior Citizen
-- Partner
-- Dependent
-- Paperless Billing
+Some Trends
+-	Senior Citizens churn percentage are higher 
+-	Customer with dependents or partners tend to have lower churn rate compared to counterparts 
+-	Customer with paperless billing have higher churn rate 
+-	Customer with Fiber Optic Internet Service have significant higher churn rate
+-	Customer with No online security, or online backup or tech support have higher churn rate 
+-	Customer with monthly subscription are more likely to churn compared to customer with one- or two-year contract 
+-	Customer with Electronic Check payment method tend to leave our client more compared to other options. 
 
-```{r}
-# Categorical Analysis # Part 2
 
-
-```
 
 ```{r}
 # Continous Variable Analysis
@@ -147,8 +149,8 @@ p <- plot_ly(df_clean,
              z = ~tenure,
              color = ~Churn,
              marker = list(
-               size = 2)) %>% 
-             add_markers() %>% 
+               size = 2)) %>%
+             add_markers() %>%
              layout(scene = list(
                xaxis = list(title = "Monthly Charges"),
                yaxis = list(title = "Total Charges"),
@@ -159,6 +161,7 @@ p
 
 ```{r}
 # Correlation matrix of continous variable analysis (thank you very much)
+scatterplotMatrix(~ tenure + MonthlyCharges + TotalCharges|Churn, data = df_clean, col = c("red","blue"))
 ```
 
 Placeholder for observation for the continous 
@@ -210,8 +213,8 @@ getinfo(df_clean.fulllogit,df_clean2)[c("confusion_matrix", "accuracy","sensitiv
 # Using Forward Approach to search for GLM model with lowest BIC 
 
 # tmp.modelsearch <- bestglm(df_clean2[training==1,],IC = "BIC", family = binomial, method = "forward") # Takes a long while (>= 4 to 6 hours)
-tmp.modelsearch$BestModels
-tmp.modelsearch$BestModel
+# tmp.modelsearch$BestModels
+# tmp.modelsearch$BestModel
 
 # Best GLM Model
 df_clean.bestlogit <- glm(Churn~ 
@@ -352,7 +355,7 @@ tmp5
 ```
 A small discussion about cutoff point:
 
-as we are attempting to identify customer that are going to churn, we thus need to focus on sensitivity metric compared to accuracy. As it is comparitively more expensive to acquire customer than retain customer, thus we are not as concern with false positive, but rather concerned with false negative. We would idealy like a model that is able to successful target all customer that are going to churn, and it should matter less if we have a higher number of false postive to us a telcommunication company. Thus we should have a lower threshold value than 0.5, though the actual value often require domain knowledge which we lack, thus we are going to use a more objective method to set out threshold value. 
+As we are attempting to identify customer that are going to churn, we thus need to focus on sensitivity metric compared to accuracy. As it is comparitively more expensive to acquire customer than retain customer, thus we are not as concern with false positive, but rather concerned with false negative. We would idealy like a model that is able to successful target all customer that are going to churn, and it should matter less if we have a higher number of false postive to us a telcommunication company. Thus we should have a lower threshold value than 0.5, though the actual value often require domain knowledge which we lack, thus we are going to use a more objective method to set out threshold value. 
 ```{r}
 # Lets use logistic regression as it has the largest AUC out of all three method
 
@@ -368,7 +371,7 @@ plot(x_axis,output[,1], type = "l", col = "darkgreen", xlab = "Threshold Value",
 lines(x_axis,output[,2],col = "red")
 lines(x_axis,output[,3], col = "blue")
 legend("bottom",col=c(2,"darkgreen",4,"darkred"),text.font =3,inset = 0.02,
-       box.lty=0,cex = 0.8, 
+       box.lty=0,cex = 0.8,
        lwd=c(2,2,2,2),c("Specificity","Senitivity","Accuracy"))
 
 
